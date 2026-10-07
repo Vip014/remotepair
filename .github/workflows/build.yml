@@ -1,4 +1,4 @@
-name: Build Controller APK
+name: Build APKs
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-controller:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,4 +35,35 @@ jobs:
         with:
           name: RemotePair-Controller-debug
           path: controller-app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  build-host:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: host-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Accept Android SDK licenses
+        working-directory: .
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+      - name: Install Android SDK components
+        working-directory: .
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Generate gradle wrapper
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.9
+          fi
+          chmod +x gradlew
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemotePair-Host-debug
+          path: host-app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

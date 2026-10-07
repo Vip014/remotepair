@@ -1,0 +1,2 @@
+-keep class com.remotepair.** { *; }
+-keepattributes *Annotation*
