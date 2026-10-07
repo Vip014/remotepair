@@ -1,0 +1,16 @@
+{
+  "name": "remotepair-signaling",
+  "version": "0.1.0",
+  "description": "WebRTC signaling server for RemotePair",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "mock-host": "node mock-host.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
