@@ -1,4 +1,4 @@
-package com.remotepair.controller.signaling
+package com.remotepair.host.signaling
 
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,50 +14,50 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import java.net.URI
 
-sealed class SignalingState {
-    data object Idle : SignalingState()
-    data object Connecting : SignalingState()
-    data class Registered(val id: String) : SignalingState()
-    data class PeerConnected(val peerId: String) : SignalingState()
-    data class Error(val message: String) : SignalingState()
-    data object Closed : SignalingState()
+sealed class HostSignalState {
+    data object Idle : HostSignalState()
+    data object Connecting : HostSignalState()
+    data class Registered(val id: String) : HostSignalState()
+    data class ControllerJoined(val peerId: String) : HostSignalState()
+    data class Error(val message: String) : HostSignalState()
+    data object Closed : HostSignalState()
 }
 
-sealed class SignalingEvent {
-    data class Signal(val payload: JsonElement) : SignalingEvent()
-    data object PeerLeft : SignalingEvent()
+sealed class HostSignalEvent {
+    data class Signal(val from: String, val payload: JsonElement) : HostSignalEvent()
+    data object PeerLeft : HostSignalEvent()
 }
 
 /**
- * Controller-side signaling. Registers with role=controller, then pairs with a
- * host by ID. Relays WebRTC SDP + ICE through the server to the paired host.
+ * Host-side signaling. Registers with role=host. The server assigns an ID,
+ * but we also pass our preferred ID so both sides match (server is lenient).
  */
 class SignalingClient(private val url: String) {
     private val json = Json { ignoreUnknownKeys = true }
     private var ws: WebSocketClient? = null
 
-    private val _state = MutableStateFlow<SignalingState>(SignalingState.Idle)
+    private val _state = MutableStateFlow<HostSignalState>(HostSignalState.Idle)
     val state = _state.asStateFlow()
 
-    private val _events = MutableSharedFlow<SignalingEvent>(extraBufferCapacity = 32)
+    private val _events = MutableSharedFlow<HostSignalEvent>(extraBufferCapacity = 32)
     val events = _events.asSharedFlow()
 
     fun connect() {
-        if (_state.value is SignalingState.Connecting) return
-        _state.value = SignalingState.Connecting
+        if (_state.value is HostSignalState.Connecting) return
+        _state.value = HostSignalState.Connecting
         ws = object : WebSocketClient(URI(url)) {
             override fun onOpen(h: ServerHandshake?) {
                 send(buildJsonObject {
                     put("type", "register")
-                    put("role", "controller")
+                    put("role", "host")
                 }.toString())
             }
             override fun onMessage(message: String) { handle(message) }
             override fun onClose(code: Int, reason: String?, remote: Boolean) {
-                _state.value = SignalingState.Closed
+                _state.value = HostSignalState.Closed
             }
             override fun onError(ex: Exception?) {
-                _state.value = SignalingState.Error(ex?.message ?: "unknown")
+                _state.value = HostSignalState.Error(ex?.message ?: "unknown")
             }
         }.also { it.connect() }
     }
@@ -67,28 +67,20 @@ class SignalingClient(private val url: String) {
         when (obj["type"]?.jsonPrimitive?.content) {
             "registered" -> {
                 val id = obj["id"]?.jsonPrimitive?.content ?: return
-                _state.value = SignalingState.Registered(id)
+                _state.value = HostSignalState.Registered(id)
             }
-            "connected" -> {
+            "controller_joined" -> {
                 val peer = obj["peerId"]?.jsonPrimitive?.content ?: return
-                _state.value = SignalingState.PeerConnected(peer)
+                _state.value = HostSignalState.ControllerJoined(peer)
             }
             "signal" -> {
+                val from = obj["from"]?.jsonPrimitive?.content ?: return
                 val payload = obj["payload"] ?: return
-                _events.tryEmit(SignalingEvent.Signal(payload))
+                _events.tryEmit(HostSignalEvent.Signal(from, payload))
             }
-            "peer_left" -> _events.tryEmit(SignalingEvent.PeerLeft)
-            "error" -> _state.value =
-                SignalingState.Error(obj["error"]?.jsonPrimitive?.content ?: "error")
+            "peer_left" -> _events.tryEmit(HostSignalEvent.PeerLeft)
+            "error" -> _state.value = HostSignalState.Error(obj["error"]?.jsonPrimitive?.content ?: "error")
         }
-    }
-
-    /** Ask the server to pair us with a host by its 9-digit ID. */
-    fun connectToHost(hostId: String) {
-        ws?.send(buildJsonObject {
-            put("type", "connect")
-            put("id", hostId)
-        }.toString())
     }
 
     fun sendSignal(payload: JsonElement) {
@@ -97,6 +89,8 @@ class SignalingClient(private val url: String) {
             put("payload", payload)
         }.toString())
     }
+
+    fun registeredId(): String? = (_state.value as? HostSignalState.Registered)?.id
 
     fun disconnect() {
         runCatching { ws?.send(buildJsonObject { put("type", "disconnect") }.toString()) }

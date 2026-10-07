@@ -10,11 +10,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.remotepair.host"  // DIFFERENT from Controller - installs side-by-side
+        applicationId = "com.remotepair.host"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         buildConfigField("String", "DEFAULT_SIGNALING_URL", "\"wss://remotepair-vip014.onrender.com\"")
     }
 
@@ -57,9 +57,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-
-    // Google Play Services for location (fused location provider)
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // WebSocket + WebRTC
+    implementation("org.java-websocket:Java-WebSocket:1.5.7")
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

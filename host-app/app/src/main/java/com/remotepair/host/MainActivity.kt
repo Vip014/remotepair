@@ -9,14 +9,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.remotepair.host.ui.screens.MainScreen
 import com.remotepair.host.ui.screens.SettingsScreen
-import com.remotepair.host.ui.theme.RemotePairHostTheme
+import com.remotepair.host.ui.theme.RemotePairTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            RemotePairHostTheme {
+            RemotePairTheme {
                 val nav = rememberNavController()
                 NavHost(nav, startDestination = "main") {
                     composable("main") {
