@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RemotePair — Web Controller</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --surface: #121620;
+    --surface-2: #1c212d;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --accent: #3b82f6;
+    --accent-2: #2563eb;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --outline: #2a3140;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--outline);
+    background: var(--surface);
+  }
+  header .logo { font-weight: 700; letter-spacing: .5px; }
+  header .logo span { color: var(--accent); }
+  .pill {
+    margin-left: auto;
+    font-size: 13px; color: var(--muted);
+    background: var(--surface-2);
+    padding: 6px 12px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.live { color: #fff; background: var(--accent-2); }
+  .pill.err { color: #fff; background: var(--err); }
+
+  /* Connect card */
+  .connect {
+    margin: auto;
+    width: min(420px, 92vw);
+    background: var(--surface);
+    border: 1px solid var(--outline);
+    border-radius: 18px;
+    padding: 28px 24px;
+    text-align: center;
+  }
+  .connect h1 { margin: 0 0 4px; font-size: 20px; }
+  .connect p { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  .connect input {
+    width: 100%;
+    font-size: 26px; letter-spacing: 4px; text-align: center;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    padding: 14px 10px;
+    background: var(--bg);
+    border: 1px solid var(--outline);
+    border-radius: 12px;
+    color: var(--text);
+    outline: none;
+  }
+  .connect input:focus { border-color: var(--accent); }
+  button {
+    font: inherit; cursor: pointer; border: none;
+    border-radius: 12px; padding: 12px 16px;
+    background: var(--accent); color: #fff; font-weight: 600;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: var(--surface-2); color: var(--text); }
+  .connect button { width: 100%; margin-top: 16px; padding: 14px; font-size: 16px; }
+
+  /* Stage */
+  .stage {
+    flex: 1; min-height: 0;
+    display: none;
+    flex-direction: column;
+    background: #000;
+  }
+  .stage.active { display: flex; }
+  .screen-wrap {
+    flex: 1; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  video {
+    max-width: 100%; max-height: 100%;
+    background: #000;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .overlay-hint {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 15px; text-align: center; padding: 20px;
+    pointer-events: none;
+  }
+  .spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--surface-2); border-top-color: var(--accent);
+    animation: spin 1s linear infinite; margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-top: 1px solid var(--outline);
+  }
+  .toolbar button { background: var(--surface-2); color: var(--text); font-weight: 500; padding: 10px 14px; }
+  .toolbar button:hover { background: #28303f; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar .disconnect { background: var(--err); color: #fff; }
+  .hint { color: var(--muted); font-size: 12px; padding: 0 14px 10px; background: var(--surface); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">Remote<span>Pair</span> · Web</div>
+    <div id="pill" class="pill">Not connected</div>
+  </header>
+
+  <!-- Connect screen -->
+  <div id="connectCard" class="connect">
+    <h1>Connect to a host</h1>
+    <p>Enter the 9-digit ID shown in the RemotePair Host app.</p>
+    <input id="hostId" inputmode="numeric" maxlength="9" placeholder="123456789" autocomplete="off" />
+    <button id="connectBtn">Connect</button>
+  </div>
+
+  <!-- Live screen -->
+  <div id="stage" class="stage">
+    <div class="screen-wrap">
+      <video id="screen" autoplay playsinline muted></video>
+      <div id="hint" class="overlay-hint">
+        <div>
+          <div class="spinner"></div>
+          Waiting for the host screen…<br />
+          Make sure the host tapped “Start sharing”.
+        </div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button data-nav="back">◀ Back</button>
+      <button data-nav="home">● Home</button>
+      <button data-nav="recents">■ Recents</button>
+      <span class="spacer"></span>
+      <button id="fsBtn" class="ghost">⛶ Fullscreen</button>
+      <button id="disconnectBtn" class="disconnect">Disconnect</button>
+    </div>
+    <div class="hint">Click to tap · click-and-drag to swipe. Keep this tab open to stay connected.</div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  // Signaling URL: same host as this page, ws(s) scheme.
+  const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  const ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+
+  const el = (id) => document.getElementById(id);
+  const pill = el("pill");
+  const connectCard = el("connectCard");
+  const stage = el("stage");
+  const video = el("screen");
+  const hint = el("hint");
+
+  let ws = null, pc = null, dc = null;
+  let hostId = null;
+
+  function setPill(text, cls) {
+    pill.textContent = text;
+    pill.className = "pill" + (cls ? " " + cls : "");
+  }
+
+  function wsSend(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+  function sendSignal(payload) { wsSend({ type: "signal", payload }); }
+
+  function start(id) {
+    hostId = id;
+    setPill("Connecting…");
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => wsSend({ type: "register", role: "controller" });
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      switch (m.type) {
+        case "registered":
+          setPill("Finding host " + hostId + "…");
+          wsSend({ type: "connect", id: hostId });
+          break;
+        case "connected":
+          setPill("Negotiating…");
+          startCall();
+          break;
+        case "signal":
+          handleSignal(m.payload);
+          break;
+        case "peer_left":
+          setPill("Host left", "err");
+          teardownCall();
+          break;
+        case "error":
+          setPill("Error: " + (m.error || "unknown"), "err");
+          break;
+      }
+    };
+    ws.onclose = () => { if (pill.className.indexOf("err") < 0) setPill("Disconnected"); };
+    ws.onerror = () => setPill("Connection error", "err");
+  }
+
+  async function startCall() {
+    pc = new RTCPeerConnection({ iceServers: ICE });
+    pc.addTransceiver("video", { direction: "recvonly" });
+    dc = pc.createDataChannel("input", { ordered: true, maxRetransmits: 0 });
+
+    pc.ontrack = (e) => {
+      video.srcObject = e.streams[0] || new MediaStream([e.track]);
+      hint.style.display = "none";
+      setPill("Live", "live");
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sendSignal({
+          candidate: e.candidate.candidate,
+          sdpMid: e.candidate.sdpMid,
+          sdpMLineIndex: e.candidate.sdpMLineIndex,
+        });
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc && (pc.connectionState === "failed" || pc.connectionState === "disconnected")) {
+        setPill("Connection lost", "err");
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendSignal({ type: "offer", sdp: offer.sdp });
+
+    connectCard.style.display = "none";
+    stage.classList.add("active");
+  }
+
+  async function handleSignal(p) {
+    if (!p) return;
+    if (p.type === "answer") {
+      await pc.setRemoteDescription({ type: "answer", sdp: p.sdp });
+    } else if (p.candidate) {
+      try {
+        await pc.addIceCandidate({
+          candidate: p.candidate,
+          sdpMid: p.sdpMid,
+          sdpMLineIndex: p.sdpMLineIndex,
+        });
+      } catch (_) {}
+    }
+  }
+
+  function teardownCall() {
+    if (pc) { try { pc.close(); } catch (_) {} pc = null; }
+    dc = null;
+    video.srcObject = null;
+    hint.style.display = "flex";
+  }
+
+  function fullDisconnect() {
+    teardownCall();
+    if (ws) { try { wsSend({ type: "disconnect" }); ws.close(); } catch (_) {} ws = null; }
+    stage.classList.remove("active");
+    connectCard.style.display = "";
+    setPill("Not connected");
+  }
+
+  function sendInput(obj) {
+    if (dc && dc.readyState === "open") dc.send(JSON.stringify(obj));
+  }
+
+  // Map a pointer position on the <video> element to normalized [0,1]
+  // coordinates inside the actual video frame (accounts for letterboxing).
+  function normFromEvent(e) {
+    const r = video.getBoundingClientRect();
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const scale = Math.min(r.width / vw, r.height / vh);
+    const dispW = vw * scale, dispH = vh * scale;
+    const offX = (r.width - dispW) / 2, offY = (r.height - dispH) / 2;
+    const x = (e.clientX - r.left - offX) / dispW;
+    const y = (e.clientY - r.top - offY) / dispH;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return { x, y };
+  }
+
+  // Pointer → tap / swipe
+  let down = null;
+  video.addEventListener("pointerdown", (e) => {
+    down = normFromEvent(e);
+    video.setPointerCapture(e.pointerId);
+  });
+  video.addEventListener("pointerup", (e) => {
+    const up = normFromEvent(e);
+    if (!down || !up) { down = null; return; }
+    const dx = up.x - down.x, dy = up.y - down.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.02) {
+      sendInput({ t: "tap", x: up.x, y: up.y });
+    } else {
+      sendInput({ t: "swipe", x1: down.x, y1: down.y, x2: up.x, y2: up.y, ms: 180 });
+    }
+    down = null;
+  });
+
+  // Nav buttons
+  document.querySelectorAll("[data-nav]").forEach((b) =>
+    b.addEventListener("click", () => sendInput({ t: b.getAttribute("data-nav") }))
+  );
+
+  // Connect / disconnect / fullscreen
+  const idInput = el("hostId");
+  idInput.addEventListener("input", () => { idInput.value = idInput.value.replace(/\D/g, ""); });
+  el("connectBtn").addEventListener("click", () => {
+    const id = idInput.value.trim();
+    if (id.length === 9) start(id);
+    else setPill("Enter a 9-digit ID", "err");
+  });
+  idInput.addEventListener("keydown", (e) => { if (e.key === "Enter") el("connectBtn").click(); });
+  el("disconnectBtn").addEventListener("click", fullDisconnect);
+  el("fsBtn").addEventListener("click", () => {
+    if (!document.fullscreenElement) stage.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+
+  // Prefill from ?id=123456789
+  const q = new URLSearchParams(location.search).get("id");
+  if (q && /^\d{9}$/.test(q)) { idInput.value = q; }
+})();
+</script>
+</body>
+</html>

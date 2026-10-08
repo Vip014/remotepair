@@ -3,7 +3,11 @@
 // Run: node server.js
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { WebSocketServer } = require('ws');
+
+const WEB_DIR = path.join(__dirname, 'public');
 
 const PORT = process.env.PORT || 8080;
 const ID_EXPIRY_MS = 24 * 60 * 60 * 1000;        // 24h idle
@@ -44,8 +48,24 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, peers: peers.size }));
     return;
   }
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('RemotePair signaling server\n');
+
+  // Serve the web controller (single page) at / and /control.
+  const urlPath = (req.url || '/').split('?')[0];
+  if (urlPath === '/' || urlPath === '/control' || urlPath === '/index.html') {
+    fs.readFile(path.join(WEB_DIR, 'index.html'), (err, buf) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('web controller not found\n');
+      } else {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(buf);
+      }
+    });
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('not found\n');
 });
 
 const wss = new WebSocketServer({ server });
