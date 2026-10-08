@@ -1,5 +1,3 @@
 <resources>
     <string name="app_name">RemotePair Host</string>
-    <string name="accessibility_service_label">RemotePair Host</string>
-    <string name="accessibility_service_description">Lets your helper send taps and swipes to this device during an active session.</string>
 </resources>
