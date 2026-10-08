@@ -13,6 +13,8 @@ import kotlinx.serialization.json.put
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import java.net.URI
+import java.util.Timer
+import java.util.TimerTask
 
 sealed class HostSignalState {
     data object Idle : HostSignalState()
@@ -29,12 +31,20 @@ sealed class HostSignalEvent {
 }
 
 /**
- * Host-side signaling. Registers with role=host. The server assigns an ID,
- * but we also pass our preferred ID so both sides match (server is lenient).
+ * Host-side signaling with keepalive + auto-reconnect.
+ *
+ * - Pings every 25s so the socket (and the free-tier server) stays awake.
+ * - If the socket drops, it reconnects automatically and re-registers with the
+ *   SAME id, so the host keeps showing one stable 9-digit ID.
  */
 class SignalingClient(private val url: String) {
     private val json = Json { ignoreUnknownKeys = true }
     private var ws: WebSocketClient? = null
+
+    private var desiredId: String? = null      // reused across reconnects
+    private var manualClose = false
+    private var pingTimer: Timer? = null
+    private var reconnectTimer: Timer? = null
 
     private val _state = MutableStateFlow<HostSignalState>(HostSignalState.Idle)
     val state = _state.asStateFlow()
@@ -43,23 +53,40 @@ class SignalingClient(private val url: String) {
     val events = _events.asSharedFlow()
 
     fun connect() {
-        if (_state.value is HostSignalState.Connecting) return
+        manualClose = false
+        openSocket()
+    }
+
+    private fun openSocket() {
+        cancelReconnect()
         _state.value = HostSignalState.Connecting
         ws = object : WebSocketClient(URI(url)) {
             override fun onOpen(h: ServerHandshake?) {
                 send(buildJsonObject {
                     put("type", "register")
                     put("role", "host")
+                    desiredId?.let { put("id", it) }   // ask for the same id back
                 }.toString())
+                startPing()
             }
             override fun onMessage(message: String) { handle(message) }
             override fun onClose(code: Int, reason: String?, remote: Boolean) {
-                _state.value = HostSignalState.Closed
+                stopPing()
+                if (manualClose) {
+                    _state.value = HostSignalState.Closed
+                } else {
+                    _state.value = HostSignalState.Connecting
+                    scheduleReconnect()
+                }
             }
             override fun onError(ex: Exception?) {
-                _state.value = HostSignalState.Error(ex?.message ?: "unknown")
+                // onClose will follow and trigger the reconnect path.
+                if (manualClose) _state.value = HostSignalState.Error(ex?.message ?: "unknown")
             }
-        }.also { it.connect() }
+        }.also {
+            runCatching { it.connect() }
+                .onFailure { if (!manualClose) scheduleReconnect() }
+        }
     }
 
     private fun handle(message: String) {
@@ -67,6 +94,7 @@ class SignalingClient(private val url: String) {
         when (obj["type"]?.jsonPrimitive?.content) {
             "registered" -> {
                 val id = obj["id"]?.jsonPrimitive?.content ?: return
+                desiredId = id
                 _state.value = HostSignalState.Registered(id)
             }
             "controller_joined" -> {
@@ -79,7 +107,9 @@ class SignalingClient(private val url: String) {
                 _events.tryEmit(HostSignalEvent.Signal(from, payload))
             }
             "peer_left" -> _events.tryEmit(HostSignalEvent.PeerLeft)
-            "error" -> _state.value = HostSignalState.Error(obj["error"]?.jsonPrimitive?.content ?: "error")
+            "error" -> _state.value =
+                HostSignalState.Error(obj["error"]?.jsonPrimitive?.content ?: "error")
+            "pong" -> { /* keepalive ack */ }
         }
     }
 
@@ -92,7 +122,40 @@ class SignalingClient(private val url: String) {
 
     fun registeredId(): String? = (_state.value as? HostSignalState.Registered)?.id
 
+    private fun startPing() {
+        stopPing()
+        pingTimer = Timer("sig-ping", true).also {
+            it.scheduleAtFixedRate(object : TimerTask() {
+                override fun run() {
+                    runCatching { ws?.send("""{"type":"ping"}""") }
+                }
+            }, 25_000L, 25_000L)
+        }
+    }
+
+    private fun stopPing() {
+        pingTimer?.cancel()
+        pingTimer = null
+    }
+
+    private fun scheduleReconnect() {
+        cancelReconnect()
+        reconnectTimer = Timer("sig-reconnect", true).also {
+            it.schedule(object : TimerTask() {
+                override fun run() { if (!manualClose) openSocket() }
+            }, 3_000L)
+        }
+    }
+
+    private fun cancelReconnect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = null
+    }
+
     fun disconnect() {
+        manualClose = true
+        stopPing()
+        cancelReconnect()
         runCatching { ws?.send(buildJsonObject { put("type", "disconnect") }.toString()) }
         runCatching { ws?.close() }
         ws = null

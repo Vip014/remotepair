@@ -178,6 +178,7 @@
 
   let ws = null, pc = null, dc = null;
   let hostId = null;
+  let pingTimer = null;
 
   function setPill(text, cls) {
     pill.textContent = text;
@@ -187,11 +188,21 @@
   function wsSend(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
   function sendSignal(payload) { wsSend({ type: "signal", payload }); }
 
+  function startPing() {
+    stopPing();
+    pingTimer = setInterval(() => wsSend({ type: "ping" }), 25000);
+  }
+  function stopPing() {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+  }
+
   function start(id) {
     hostId = id;
     setPill("Connecting…");
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (_) {} }
+    teardownCall();
     ws = new WebSocket(WS_URL);
-    ws.onopen = () => wsSend({ type: "register", role: "controller" });
+    ws.onopen = () => { wsSend({ type: "register", role: "controller" }); startPing(); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       switch (m.type) {
@@ -211,11 +222,15 @@
           teardownCall();
           break;
         case "error":
-          setPill("Error: " + (m.error || "unknown"), "err");
+          if (m.error === "host_not_found") {
+            setPill("Host not online — open the Host app, wait for “Ready”, then Connect again", "err");
+          } else {
+            setPill("Error: " + (m.error || "unknown"), "err");
+          }
           break;
       }
     };
-    ws.onclose = () => { if (pill.className.indexOf("err") < 0) setPill("Disconnected"); };
+    ws.onclose = () => { stopPing(); if (pill.className.indexOf("err") < 0) setPill("Disconnected"); };
     ws.onerror = () => setPill("Connection error", "err");
   }
 
@@ -275,6 +290,7 @@
   }
 
   function fullDisconnect() {
+    stopPing();
     teardownCall();
     if (ws) { try { wsSend({ type: "disconnect" }); ws.close(); } catch (_) {} ws = null; }
     stage.classList.remove("active");

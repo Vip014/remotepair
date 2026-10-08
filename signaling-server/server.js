@@ -86,7 +86,23 @@ wss.on('connection', (ws, req) => {
         send(ws, { type: 'error', error: 'bad_role' });
         return;
       }
-      const id = makeId();
+      // Let a reconnecting client keep its previous id if it's a valid,
+      // free 9-digit id (or held only by a dead socket we can reclaim).
+      let id;
+      const wanted = msg.id;
+      if (typeof wanted === 'string' && /^\d{9}$/.test(wanted)) {
+        const existing = peers.get(wanted);
+        if (!existing) {
+          id = wanted;
+        } else if (existing.ws.readyState !== existing.ws.OPEN) {
+          peers.delete(wanted);
+          id = wanted;
+        } else {
+          id = makeId();
+        }
+      } else {
+        id = makeId();
+      }
       ws.id = id;
       ws.role = msg.role;
       peers.set(id, { ws, role: msg.role, lastSeen: Date.now() });
@@ -133,6 +149,10 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'ping') {
+      if (ws.id) {
+        const self = peers.get(ws.id);
+        if (self) self.lastSeen = Date.now();
+      }
       send(ws, { type: 'pong' });
     }
   });
