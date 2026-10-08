@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack as BackGesture
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
@@ -60,7 +59,7 @@ fun LiveControlScreen(hostId: String, onBack: () -> Unit) {
             BottomAppBar {
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { ControllerSession.sendInput("""{"t":"back"}""") }) {
-                    Icon(BackGesture, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { ControllerSession.sendInput("""{"t":"home"}""") }) {
