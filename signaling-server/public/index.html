@@ -135,6 +135,8 @@
     <h1>Connect to a host</h1>
     <p>Enter the 9-digit ID shown in the RemotePair Host app.</p>
     <input id="hostId" inputmode="numeric" maxlength="9" placeholder="123456789" autocomplete="off" />
+    <input id="hostPw" type="password" placeholder="Password (if the host set one)" autocomplete="off"
+      style="width:100%;margin-top:12px;font-size:16px;text-align:center;padding:12px 10px;background:var(--bg);border:1px solid var(--outline);border-radius:12px;color:var(--text);outline:none;" />
     <button id="connectBtn">Connect</button>
   </div>
 
@@ -178,6 +180,7 @@
 
   let ws = null, pc = null, dc = null;
   let hostId = null;
+  let hostPassword = "";
   let pingTimer = null;
 
   function setPill(text, cls) {
@@ -208,7 +211,7 @@
       switch (m.type) {
         case "registered":
           setPill("Finding host " + hostId + "…");
-          wsSend({ type: "connect", id: hostId });
+          wsSend({ type: "connect", id: hostId, password: hostPassword });
           break;
         case "connected":
           setPill("Negotiating…");
@@ -224,6 +227,8 @@
         case "error":
           if (m.error === "host_not_found") {
             setPill("Host not online — open the Host app, wait for “Ready”, then Connect again", "err");
+          } else if (m.error === "auth_failed") {
+            setPill("Wrong password — check with the host and try again", "err");
           } else {
             setPill("Error: " + (m.error || "unknown"), "err");
           }
@@ -346,6 +351,7 @@
   idInput.addEventListener("input", () => { idInput.value = idInput.value.replace(/\D/g, ""); });
   el("connectBtn").addEventListener("click", () => {
     const id = idInput.value.trim();
+    hostPassword = el("hostPw").value;
     if (id.length === 9) start(id);
     else setPill("Enter a 9-digit ID", "err");
   });

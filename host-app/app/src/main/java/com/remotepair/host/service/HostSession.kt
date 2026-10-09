@@ -35,9 +35,9 @@ object HostSession {
     val uiState = _uiState.asStateFlow()
 
     /** Connect to signaling and register as a host (shows the server-assigned ID). */
-    fun ensureSignaling(url: String) {
+    fun ensureSignaling(url: String, password: String = "") {
         if (signaling != null) return
-        val sc = SignalingClient(url)
+        val sc = SignalingClient(url, password)
         signaling = sc
         scope.launch {
             sc.state.collect { st ->
@@ -67,6 +67,13 @@ object HostSession {
             }
         }
         sc.connect()
+    }
+
+    /** Re-register with a new password (called when the host changes it). */
+    fun restartSignaling(url: String, password: String) {
+        signaling?.disconnect()
+        signaling = null
+        ensureSignaling(url, password)
     }
 
     /** Called by the foreground service once it is running with mediaProjection type. */

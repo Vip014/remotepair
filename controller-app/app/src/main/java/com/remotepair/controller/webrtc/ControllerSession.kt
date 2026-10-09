@@ -33,7 +33,7 @@ object ControllerSession {
 
     private var inited = false
 
-    fun start(ctx: Context, url: String, hostId: String) {
+    fun start(ctx: Context, url: String, hostId: String, password: String = "") {
         if (inited) return
         inited = true
 
@@ -53,9 +53,13 @@ object ControllerSession {
                 when (st) {
                     SignalingState.Idle -> status.value = "Idle"
                     SignalingState.Connecting -> status.value = "Connecting…"
-                    is SignalingState.Registered -> { sc.connectToHost(hostId); status.value = "Finding host $hostId…" }
+                    is SignalingState.Registered -> { sc.connectToHost(hostId, password); status.value = "Finding host $hostId…" }
                     is SignalingState.PeerConnected -> { paired.value = true; status.value = "Connected — negotiating…"; startCall() }
-                    is SignalingState.Error -> status.value = "Error: ${st.message}"
+                    is SignalingState.Error -> status.value = when (st.message) {
+                        "auth_failed" -> "Wrong password"
+                        "host_not_found" -> "Host not online — check the ID"
+                        else -> "Error: ${st.message}"
+                    }
                     SignalingState.Closed -> status.value = "Disconnected"
                 }
             }

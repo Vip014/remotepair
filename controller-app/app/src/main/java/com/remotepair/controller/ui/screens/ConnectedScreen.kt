@@ -37,7 +37,7 @@ fun ConnectedScreen(
     // Start (or reuse) the session as soon as we land here.
     LaunchedEffect(hostId) {
         val url = SettingsStore(ctx).signalingUrl.first()
-        ControllerSession.start(ctx, url, hostId)
+        ControllerSession.start(ctx, url, hostId, passphrase)
     }
 
     Scaffold(

@@ -105,7 +105,10 @@ wss.on('connection', (ws, req) => {
       }
       ws.id = id;
       ws.role = msg.role;
-      peers.set(id, { ws, role: msg.role, lastSeen: Date.now() });
+      // Optional host password: controllers must supply it (or the admin
+      // password) to connect. Empty means the host is open.
+      const password = typeof msg.password === 'string' ? msg.password : '';
+      peers.set(id, { ws, role: msg.role, lastSeen: Date.now(), password });
       send(ws, { type: 'registered', id });
       console.log(`[+] ${msg.role} ${id} from ${ip}`);
       return;
@@ -121,6 +124,18 @@ wss.on('connection', (ws, req) => {
       if (!target || target.role !== 'host') {
         send(ws, { type: 'error', error: 'host_not_found' });
         return;
+      }
+      // Password gate: if the host set a password, require it — or the global
+      // admin password (set via ADMIN_PASSWORD env var on the server).
+      const ADMIN = process.env.ADMIN_PASSWORD || '';
+      const needed = target.password || '';
+      if (needed) {
+        const given = typeof msg.password === 'string' ? msg.password : '';
+        const ok = given === needed || (ADMIN !== '' && given === ADMIN);
+        if (!ok) {
+          send(ws, { type: 'error', error: 'auth_failed' });
+          return;
+        }
       }
       ws.peerId = msg.id;
       target.ws.peerId = ws.id;

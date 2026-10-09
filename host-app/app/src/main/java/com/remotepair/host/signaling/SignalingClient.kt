@@ -37,7 +37,7 @@ sealed class HostSignalEvent {
  * - If the socket drops, it reconnects automatically and re-registers with the
  *   SAME id, so the host keeps showing one stable 9-digit ID.
  */
-class SignalingClient(private val url: String) {
+class SignalingClient(private val url: String, private val password: String = "") {
     private val json = Json { ignoreUnknownKeys = true }
     private var ws: WebSocketClient? = null
 
@@ -66,6 +66,7 @@ class SignalingClient(private val url: String) {
                     put("type", "register")
                     put("role", "host")
                     desiredId?.let { put("id", it) }   // ask for the same id back
+                    if (password.isNotEmpty()) put("password", password)
                 }.toString())
                 startPing()
             }

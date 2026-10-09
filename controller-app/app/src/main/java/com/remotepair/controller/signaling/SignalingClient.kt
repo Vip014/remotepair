@@ -83,11 +83,12 @@ class SignalingClient(private val url: String) {
         }
     }
 
-    /** Ask the server to pair us with a host by its 9-digit ID. */
-    fun connectToHost(hostId: String) {
+    /** Ask the server to pair us with a host by its 9-digit ID (+ password). */
+    fun connectToHost(hostId: String, password: String = "") {
         ws?.send(buildJsonObject {
             put("type", "connect")
             put("id", hostId)
+            if (password.isNotEmpty()) put("password", password)
         }.toString())
     }
 

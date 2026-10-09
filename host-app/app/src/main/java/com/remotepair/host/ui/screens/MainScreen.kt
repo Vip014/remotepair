@@ -21,24 +21,39 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.remotepair.host.network.IpDetector
 import com.remotepair.host.service.HostSession
 import com.remotepair.host.service.SessionService
+import com.remotepair.host.storage.PasswordStore
 import com.remotepair.host.storage.SettingsStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     val ui by HostSession.uiState.collectAsState()
     var ip by remember { mutableStateOf<String?>(null) }
+
+    val pwStore = remember { PasswordStore(ctx) }
+    var password by remember { mutableStateOf("") }
+    var savedPassword by remember { mutableStateOf("") }
+    var signalingUrl by remember { mutableStateOf("") }
 
     // Connect to signaling on first load so we get the server-assigned ID.
     LaunchedEffect(Unit) {
         val url = SettingsStore(ctx).signalingUrl.first()
-        HostSession.ensureSignaling(url)
+        signalingUrl = url
+        val pw = pwStore.password.first()
+        password = pw
+        savedPassword = pw
+        HostSession.ensureSignaling(url, pw)
         ip = IpDetector.localIp()
     }
 
@@ -116,6 +131,46 @@ fun MainScreen(onSettings: () -> Unit) {
                     Spacer(Modifier.weight(1f))
                     Text(ip!!, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
                 }
+            }
+
+            // Connect password
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Connect password", style = MaterialTheme.typography.titleSmall)
+                }
+                Text(
+                    if (savedPassword.isEmpty())
+                        "No password set — anyone with your ID can connect."
+                    else "A controller must enter this password to connect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    placeholder = { Text("Leave blank for open") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            pwStore.set(password)
+                            savedPassword = password
+                            HostSession.restartSignaling(signalingUrl, password)
+                        }
+                    },
+                    enabled = password != savedPassword,
+                    modifier = Modifier.align(Alignment.End)
+                ) { Text("Save password") }
             }
 
             Spacer(Modifier.weight(1f))
