@@ -1,7 +1,17 @@
 package com.remotepair.host.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.media.projection.MediaProjectionManager
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -45,6 +55,23 @@ fun MainScreen(onSettings: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var savedPassword by remember { mutableStateOf("") }
     var signalingUrl by remember { mutableStateOf("") }
+
+    fun hasFileAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager()
+        else androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var fileAccess by remember { mutableStateOf(hasFileAccess()) }
+
+    // Re-check file-access permission whenever we return to the screen.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) fileAccess = hasFileAccess()
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
     // Connect to signaling on first load so we get the server-assigned ID.
     LaunchedEffect(Unit) {
@@ -171,6 +198,46 @@ fun MainScreen(onSettings: () -> Unit) {
                     enabled = password != savedPassword,
                     modifier = Modifier.align(Alignment.End)
                 ) { Text("Save password") }
+            }
+
+            // File access
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("File access", style = MaterialTheme.typography.titleSmall)
+                }
+                Text(
+                    if (fileAccess)
+                        "Granted — a connected controller can browse and copy your files in the background."
+                    else "Off — turn on to let a controller browse and copy files without showing anything here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!fileAccess) {
+                    Button(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                runCatching {
+                                    ctx.startActivity(
+                                        Intent(
+                                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                            Uri.parse("package:${ctx.packageName}")
+                                        )
+                                    )
+                                }.onFailure {
+                                    ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                                }
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) { Text("Allow file access") }
+                }
             }
 
             Spacer(Modifier.weight(1f))

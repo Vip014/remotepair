@@ -75,7 +75,10 @@ class WebRtcHost(
                 })
             }
             override fun onDataChannel(dc: DataChannel) {
-                if (dc.label() == "input") attachInputChannel(dc)
+                when (dc.label()) {
+                    "input" -> attachInputChannel(dc)
+                    "files" -> com.remotepair.host.files.FileResponder(dc).attach()
+                }
             }
             override fun onSignalingChange(s: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) {}

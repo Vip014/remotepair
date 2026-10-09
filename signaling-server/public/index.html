@@ -122,6 +122,24 @@
   .toolbar .spacer { flex: 1; }
   .toolbar .disconnect { background: var(--err); color: #fff; }
   .hint { color: var(--muted); font-size: 12px; padding: 0 14px 10px; background: var(--surface); }
+
+  /* File browser drawer */
+  .files-panel {
+    position: fixed; top: 0; right: 0; height: 100%; width: min(380px, 90vw);
+    background: var(--surface); border-left: 1px solid var(--outline);
+    transform: translateX(100%); transition: transform .2s ease;
+    display: flex; flex-direction: column; z-index: 50;
+  }
+  .files-panel.open { transform: translateX(0); }
+  .files-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--outline); }
+  .files-status { color: var(--muted); font-size: 12px; }
+  .files-path { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--outline); }
+  .files-pathlabel { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  .files-list li { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--outline); cursor: pointer; }
+  .files-list li:hover { background: var(--surface-2); }
+  .files-list .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files-list .fsize { color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -157,10 +175,23 @@
       <button data-nav="home">● Home</button>
       <button data-nav="recents">■ Recents</button>
       <span class="spacer"></span>
+      <button id="filesBtn" class="ghost" disabled>📁 Files</button>
       <button id="fsBtn" class="ghost">⛶ Fullscreen</button>
       <button id="disconnectBtn" class="disconnect">Disconnect</button>
     </div>
     <div class="hint">Click to tap · click-and-drag to swipe. Keep this tab open to stay connected.</div>
+  </div>
+
+  <!-- File browser drawer -->
+  <div id="filesPanel" class="files-panel">
+    <div class="files-head">
+      <strong>Files</strong>
+      <span id="filesStatus" class="files-status"></span>
+      <button id="filesClose" class="ghost" style="margin-left:auto;padding:6px 10px;">✕</button>
+    </div>
+    <div class="files-path"><button id="filesUp" class="ghost" style="padding:4px 10px;">↑ Up</button>
+      <span id="filesPathLabel" class="files-pathlabel"></span></div>
+    <ul id="filesList" class="files-list"></ul>
   </div>
 
 <script>
@@ -178,10 +209,12 @@
   const video = el("screen");
   const hint = el("hint");
 
-  let ws = null, pc = null, dc = null;
+  let ws = null, pc = null, dc = null, filesDc = null;
   let hostId = null;
   let hostPassword = "";
   let pingTimer = null;
+  // File browser state
+  let curPath = "", rootPath = "", recv = null;
 
   function setPill(text, cls) {
     pill.textContent = text;
@@ -244,6 +277,12 @@
     pc.addTransceiver("video", { direction: "recvonly" });
     dc = pc.createDataChannel("input", { ordered: true, maxRetransmits: 0 });
 
+    // Reliable, ordered channel for file browsing/transfer.
+    filesDc = pc.createDataChannel("files", { ordered: true });
+    filesDc.binaryType = "arraybuffer";
+    filesDc.onopen = () => { el("filesBtn").disabled = false; };
+    filesDc.onmessage = onFilesMessage;
+
     pc.ontrack = (e) => {
       video.srcObject = e.streams[0] || new MediaStream([e.track]);
       hint.style.display = "none";
@@ -289,9 +328,11 @@
 
   function teardownCall() {
     if (pc) { try { pc.close(); } catch (_) {} pc = null; }
-    dc = null;
+    dc = null; filesDc = null; recv = null;
     video.srcObject = null;
     hint.style.display = "flex";
+    const fb = document.getElementById("filesBtn"); if (fb) fb.disabled = true;
+    const fp = document.getElementById("filesPanel"); if (fp) fp.classList.remove("open");
   }
 
   function fullDisconnect() {
@@ -361,6 +402,104 @@
     if (!document.fullscreenElement) stage.requestFullscreen?.();
     else document.exitFullscreen?.();
   });
+
+  // ---- File browser ----
+  function filesSend(obj) {
+    if (filesDc && filesDc.readyState === "open") filesDc.send(JSON.stringify(obj));
+  }
+  function setFileStatus(t) { el("filesStatus").textContent = t || ""; }
+  function fmtSize(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+    return (n / 1073741824).toFixed(2) + " GB";
+  }
+  function ls(path) { filesSend({ t: "ls", path: path || "" }); }
+
+  function onFilesMessage(ev) {
+    if (typeof ev.data === "string") {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.t === "ls_res") {
+        if (m.error) { setFileStatus("Can't open folder"); return; }
+        renderListing(m);
+      } else if (m.t === "file_begin") {
+        recv = { name: m.name, size: m.size || 0, chunks: [], got: 0 };
+        setFileStatus("Downloading " + m.name + "…");
+      } else if (m.t === "file_end") {
+        finishDownload();
+      } else if (m.t === "file_cancelled") {
+        recv = null; setFileStatus("Cancelled");
+      } else if (m.t === "error") {
+        setFileStatus("Error: " + (m.error || "unknown"));
+      }
+    } else if (recv) {
+      recv.chunks.push(ev.data);
+      recv.got += ev.data.byteLength;
+      const pct = recv.size ? Math.floor((recv.got / recv.size) * 100) : 0;
+      setFileStatus("Downloading " + recv.name + " " + pct + "%");
+    }
+  }
+
+  function finishDownload() {
+    if (!recv) return;
+    const blob = new Blob(recv.chunks);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = recv.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setFileStatus("Saved " + recv.name);
+    recv = null;
+  }
+
+  function joinPath(base, name) {
+    return base.endsWith("/") ? base + name : base + "/" + name;
+  }
+  function parentPath(p) {
+    if (!rootPath || p === rootPath) return rootPath;
+    const i = p.lastIndexOf("/");
+    const up = i > 0 ? p.substring(0, i) : rootPath;
+    return up.length < rootPath.length ? rootPath : up;
+  }
+
+  function renderListing(m) {
+    curPath = m.path || "";
+    if (m.root) rootPath = m.root;
+    el("filesPathLabel").textContent = curPath;
+    const list = el("filesList");
+    list.innerHTML = "";
+    (m.entries || []).forEach((e) => {
+      const li = document.createElement("li");
+      const icon = document.createElement("span");
+      icon.textContent = e.dir ? "📁" : "📄";
+      const name = document.createElement("span");
+      name.className = "fname"; name.textContent = e.name;
+      li.appendChild(icon); li.appendChild(name);
+      if (!e.dir) {
+        const sz = document.createElement("span");
+        sz.className = "fsize"; sz.textContent = fmtSize(e.size || 0);
+        li.appendChild(sz);
+      }
+      li.addEventListener("click", () => {
+        const child = joinPath(curPath, e.name);
+        if (e.dir) ls(child);
+        else { setFileStatus("Requesting " + e.name + "…"); filesSend({ t: "get", path: child }); }
+      });
+      list.appendChild(li);
+    });
+    if (!(m.entries || []).length) {
+      const li = document.createElement("li");
+      li.textContent = "(empty)"; li.style.color = "var(--muted)"; li.style.cursor = "default";
+      list.appendChild(li);
+    }
+  }
+
+  el("filesBtn").addEventListener("click", () => {
+    el("filesPanel").classList.add("open");
+    ls(""); // root
+  });
+  el("filesClose").addEventListener("click", () => el("filesPanel").classList.remove("open"));
+  el("filesUp").addEventListener("click", () => ls(parentPath(curPath)));
 
   // Prefill from ?id=123456789
   const q = new URLSearchParams(location.search).get("id");
