@@ -23,6 +23,8 @@ object HostSession {
     private var signaling: SignalingClient? = null
     private var webrtc: WebRtcHost? = null
     private var currentPeer: String? = null
+    private var lastLat: Double? = null
+    private var lastLon: Double? = null
 
     data class UiState(
         val hostId: String = "---------",
@@ -44,8 +46,12 @@ object HostSession {
                 when (st) {
                     HostSignalState.Idle -> update { it.copy(status = "Offline") }
                     HostSignalState.Connecting -> update { it.copy(status = "Connecting…") }
-                    is HostSignalState.Registered ->
+                    is HostSignalState.Registered -> {
                         update { it.copy(hostId = st.id, status = "Ready — share your ID") }
+                        // Re-report location after (re)registering.
+                        val la = lastLat; val lo = lastLon
+                        if (la != null && lo != null) sc.sendLoc(la, lo)
+                    }
                     is HostSignalState.ControllerJoined -> {
                         currentPeer = st.peerId
                         update { it.copy(controllerConnected = true, status = "Controller connected") }
@@ -67,6 +73,12 @@ object HostSession {
             }
         }
         sc.connect()
+    }
+
+    /** Report the host's current location (stored and sent to the server). */
+    fun reportLocation(lat: Double, lon: Double) {
+        lastLat = lat; lastLon = lon
+        signaling?.sendLoc(lat, lon)
     }
 
     /** Re-register with a new password (called when the host changes it). */

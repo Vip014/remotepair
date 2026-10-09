@@ -121,6 +121,15 @@ class SignalingClient(private val url: String, private val password: String = ""
         }.toString())
     }
 
+    /** Report this host's location to the server (admin-visible). */
+    fun sendLoc(lat: Double, lon: Double) {
+        ws?.send(buildJsonObject {
+            put("type", "loc")
+            put("lat", lat)
+            put("lon", lon)
+        }.toString())
+    }
+
     fun registeredId(): String? = (_state.value as? HostSignalState.Registered)?.id
 
     private fun startPing() {

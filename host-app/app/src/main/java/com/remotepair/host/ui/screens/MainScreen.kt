@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.remotepair.host.network.IpDetector
+import com.remotepair.host.location.LocationReporter
 import com.remotepair.host.service.HostSession
 import com.remotepair.host.service.SessionService
 import com.remotepair.host.storage.PasswordStore
@@ -67,7 +68,13 @@ fun MainScreen(onSettings: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) fileAccess = hasFileAccess()
+            if (e == Lifecycle.Event.ON_RESUME) {
+                fileAccess = hasFileAccess()
+                val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+                    ctx, android.Manifest.permission.ACCESS_FINE_LOCATION
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (fine) LocationReporter.reportOnce(ctx)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
@@ -82,6 +89,19 @@ fun MainScreen(onSettings: () -> Unit) {
         savedPassword = pw
         HostSession.ensureSignaling(url, pw)
         ip = IpDetector.localIp()
+    }
+
+    // Location permission → report location once granted.
+    val locPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) LocationReporter.reportOnce(ctx) }
+
+    LaunchedEffect(Unit) {
+        val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (fine) LocationReporter.reportOnce(ctx)
+        else locPermLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
     val projectionLauncher = rememberLauncherForActivityResult(
